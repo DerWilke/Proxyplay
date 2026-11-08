@@ -1,0 +1,6 @@
+*.exe
+*.exe.old
+*.zip
+spiel-agent.log
+spiel-settings.json
+spiel-config.json

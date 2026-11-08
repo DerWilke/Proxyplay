@@ -1,0 +1,645 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spiele-Stream</title>
+<style>
+:root{--bg:#000;--bar:rgba(17,20,28,.92);--fg:#e6e9ef;--mut:#98a2b3;--acc:#818cf8;--ok:#22c55e;--warn:#f59e0b;--bad:#ef4444;--line:#2a3140}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:14px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif;overflow:hidden}
+#wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center}
+canvas{max-width:100%;max-height:100%;width:auto;height:auto;image-rendering:auto;cursor:crosshair;outline:none}
+#bar{position:fixed;left:0;right:0;top:0;display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;padding:8px 12px;background:var(--bar);border-bottom:1px solid var(--line);z-index:5;transition:transform .2s}
+#bar.hide{transform:translateY(-100%)}
+#bar b{font-weight:600}
+#bar label{color:var(--mut);display:flex;gap:6px;align-items:center}
+select,button,input[type=range]{font:inherit}
+select,button{background:#1b2130;color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:5px 9px}
+button{cursor:pointer}button.pri{background:var(--acc);border-color:var(--acc);color:#0b0d12;font-weight:600}
+.st{font-variant-numeric:tabular-nums;color:var(--mut)}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--mut);margin-right:6px}
+.dot.ok{background:var(--ok)}.dot.warn{background:var(--warn)}.dot.bad{background:var(--bad)}
+#msg{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);max-width:min(560px,calc(100% - 32px));background:var(--bar);border:1px solid var(--line);border-radius:14px;padding:18px 20px;text-align:center;z-index:4}
+#msg h2{margin:0 0 6px;font-size:18px}#msg p{margin:6px 0;color:var(--mut)}
+#hint{position:fixed;bottom:10px;left:50%;transform:translateX(-50%);background:var(--bar);border:1px solid var(--line);border-radius:999px;padding:6px 14px;color:var(--mut);z-index:4;font-size:13px;display:none}
+.sp{flex:1}
+#meas{position:fixed;right:10px;top:56px;width:340px;max-width:calc(100% - 20px);background:var(--bar);border:1px solid var(--line);border-radius:12px;padding:10px 12px;z-index:4;font:12px/1.45 ui-monospace,Consolas,monospace;display:none}
+#meas h3{margin:0 0 6px;font:600 13px system-ui,sans-serif;display:flex;justify-content:space-between}
+#meas canvas{width:100%;height:70px;display:block;margin:4px 0 6px;background:#0b0d12;border-radius:6px}
+#meas table{width:100%;border-collapse:collapse}#meas td{padding:0 0 1px}#meas td:last-child{text-align:right;color:var(--fg)}
+#meas td:first-child{color:var(--mut)}#meas tr.sum td{border-top:1px solid var(--line);padding-top:2px;font-weight:600}
+#meas .lg{color:var(--mut);font-size:11px}
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="cv" tabindex="0" width="1280" height="720"></canvas></div>
+<div id="bar">
+ <b>Spiele-PC</b>
+ <span class="st"><span class="dot" id="dot"></span><span id="stat">verbinde …</span></span>
+ <span class="sp"></span>
+ <label>Auflösung <select id="res"><option value="1280x720">1280×720</option><option value="1600x900">1600×900</option><option value="1920x1080">1920×1080</option><option value="960x540">960×540 (sparsam)</option><option value="0x0">Original</option></select></label>
+ <label>Bilder/s <select id="fps"><option>30</option><option>60</option><option>20</option></select></label>
+ <label title="Selten: die Grafikkarte frischt das Bild streifenweise auf, ein komplettes Bild nur alle 5 s (keine großen Datenspitzen). Jede Sekunde: bisheriges Verfahren.">Schlüsselbilder <select id="kf"><option value="ir">Selten (neu)</option><option value="gop">Jede Sekunde (alt)</option></select></label>
+ <label>Qualität <select id="kbps"><option value="2000">2 Mbit/s</option><option value="4000">4 Mbit/s</option><option value="6000">6 Mbit/s</option><option value="10000">10 Mbit/s</option><option value="1000">1 Mbit/s</option></select></label>
+ <label>Maus <select id="mouse"><option value="rel">Spiel (Maus fangen)</option><option value="abs">Desktop (direkt)</option></select></label>
+ <label title="Mausgeschwindigkeit im Spiel-Modus">Tempo <input id="sens" type="range" min="0.3" max="3" step="0.1" value="1"></label>
+ <label>Übertragung <select id="mode"><option value="auto">Automatisch</option><option value="stream">Stream</option><option value="poll">Abfrage</option></select></label>
+ <label title="Ausgewogen: Bilder leicht geglättet, verspätete werden sofort gezeigt statt übersprungen. Flüssig: am gleichmäßigsten (mehr Verzögerung). Direkt: jedes Bild sofort (kann ruckeln).">Bild <select id="smooth"><option value="auto">Automatisch</option><option value="bal">Ausgewogen</option><option value="on">Flüssig</option><option value="off">Direkt</option></select></label>
+ <label title="Gibt Mausbewegungen auf dem PC gleichmäßig an das Spiel weiter: Kamera dreht flüssiger, Maus reagiert ~20–30 ms später. Klicks und Tasten bleiben sofort.">Maus glätten <select id="msmooth"><option value="off">Aus</option><option value="on">An</option></select></label>
+ <label title="H.265 braucht für das gleiche Bild weniger Daten. Automatisch nutzt es, wenn dieser Browser/PC es abspielen kann.">Codec <select id="codec"><option value="auto">Automatisch</option><option value="h264">H.264</option><option value="hevc">H.265</option></select></label>
+ <button id="snd">🔇 Ton aus</button>
+ <label title="Lautstärke"><input id="vol" type="range" min="0" max="1.5" step="0.05" value="1"></label>
+ <button id="measBtn" title="Zeigt, wo die Verzögerung entsteht (misst auch ausgeblendet im Hintergrund weiter)">📊 Messwerte</button>
+ <button id="fs" class="pri">Vollbild</button>
+</div>
+<div id="msg"><h2>Verbinde mit dem Spiele-PC …</h2><p id="msgt">Einen Moment.</p></div>
+<div id="hint"></div>
+<div id="meas"><h3><span>📊 Messwerte (letzte 10 s)</span><span><span id="measInfo" class="lg"></span> <button id="measX" title="Ausblenden – misst im Hintergrund weiter" style="padding:0 7px;margin-left:6px">✕</button></span></h3>
+<canvas id="measCv" width="640" height="140"></canvas>
+<div class="lg">grün: Verspätung je Bild · grau: Bildgröße · orange: Schlüsselbild</div>
+<table id="measTab"></table></div>
+<script>
+"use strict";
+const $=s=>document.querySelector(s);
+const cv=$('#cv'),ctx=cv.getContext('2d',{alpha:false,desynchronized:true});
+const LS={get(k,d){try{const v=localStorage.getItem('spiel.'+k);return v==null?d:v}catch(e){return d}},set(k,v){try{localStorage.setItem('spiel.'+k,v)}catch(e){}}};
+for(const id of ['mouse','sens','mode','smooth','msmooth','codec']){const el=$('#'+id);el.value=LS.get(id,el.value);el.onchange=()=>{LS.set(id,el.value);if(id==='mode')restartTransport();if(id==='mouse')releaseAll();if(id==='codec')chooseCodec(true)}}
+
+// ---------------------------------------------------------------- status
+const stats={frames:0,bytes:0,decoded:0,lag:0,mode:'-',lastFrame:0,proto:'',netErr:0,lastErr:''};
+let baseOff=null,jit=[],smoothDelay=0;const errHist=[];
+function setStat(cls,txt){$('#dot').className='dot '+cls;$('#stat').textContent=txt}
+let msgOn=true;
+function msg(h,t){const m=$('#msg');msgOn=!!h;if(!h){m.style.display='none';return}m.style.display='';m.querySelector('h2').textContent=h;$('#msgt').textContent=t||''}
+setInterval(()=>{
+ const fps=stats.decoded,mbit=(stats.bytes*8/1e6).toFixed(1);
+ stats.decoded=0;stats.bytes=0;
+ const ne=stats.netErr;stats.netErr=0;
+ if(performance.now()-stats.lastFrame>3000){setStat('bad','kein Bild ('+stats.mode+(stats.lastErr?', '+stats.lastErr:'')+')');return}
+ if(ne)errHist.push(performance.now());while(errHist.length&&performance.now()-errHist[0]>60000)errHist.shift();
+ const cls=fps>=20&&stats.lag<250?'ok':fps>=10?'warn':'bad';
+ const sm=smoothOn()?` · Glättung ${Math.round(smoothDelay)} ms`:'';
+ const eh=errHist.length?` · ${errHist.length} Aussetzer/min`:'';
+ setStat(cls,`${fps} Bilder/s · ${mbit} Mbit/s · Schwankung ${Math.round(jitP90())} ms${sm} · ${stats.mode}${stats.proto?' '+stats.proto:''}${eh}`);
+},1000);
+
+// ---------------------------------------------------------------- Messmodus
+// Collects timings per answer/frame and shows where the delay comes from. While on, a
+// summary goes to the PC every 5 s (POST api/reports) so it can be read remotely.
+// M.on: collecting (always, it is cheap); M.vis: panel shown. Hidden -> report every 10 s, no drawing.
+const M={on:true,vis:false,resp:[],fr:[],inp:[],ev:{catchup:0,re:0,skipOld:0,skipSmooth:0,keys:0},agent:null,decT:new Map(),outT:new Map(),part:new Map()};
+function mPush(a,v){a.push(v);const lim=performance.now()-10000;while(a.length&&a[0].t<lim)a.shift()}
+function q(arr,p){if(!arr.length)return null;const a=arr.slice().sort((x,y)=>x-y);return a[Math.min(a.length-1,Math.floor(a.length*p))]}
+const r0=v=>v==null?'–':Math.round(v);
+function measSummary(){
+ const R=M.resp,F=M.fr,I=M.inp,col=(a,k)=>a.map(x=>x[k]).filter(x=>x!=null);
+ const sz=col(F,'size'),keyS=F.filter(x=>x.key).map(x=>x.size),med=q(sz,.5);
+ const fps=+$('#fps').value||30;
+ const o={
+  rtt:[q(col(R,'rtt'),.5),q(col(R,'rtt'),.9)], hold:q(col(R,'hold'),.5), xfer:q(col(R,'xfer'),.5),
+  ageSend:[q(col(F,'ageSend'),.5),q(col(F,'ageSend'),.9)], down:[q(col(F,'down'),.5),q(col(F,'down'),.9)],
+  pend:[q(col(F,'pend'),.5),q(col(F,'pend'),.9)], dec:[q(col(F,'dec'),.5),q(col(F,'dec'),.9)], wait:[q(col(F,'wait'),.5),q(col(F,'wait'),.9)],
+  total:[q(col(F,'total'),.5),q(col(F,'total'),.9)], late:[q(col(F,'late'),.5),q(col(F,'late'),.9)],
+  inp:[q(col(I,'rtt'),.5),q(col(I,'rtt'),.9)],
+  sizeKB:[med&&med/1024,q(sz,1)&&q(sz,1)/1024], keyKB:keyS.length?Math.max(...keyS)/1024:null, keys:keyS.length,
+  spikes:med?sz.filter(x=>x>3*med).length:0, frames:F.length, drawn:col(F,'wait').length,
+  capEnc:1000/fps/2+5, ev:Object.assign({},M.ev), aBuf:aTarget*1000, aUnder, aDrop, aFold:audioFold(), errs:errHist.length, jit:jitP90(), smoothMs:smoothOn()?smoothDelay:0
+ };
+ o.keyToPic=(o.inp[0]!=null&&o.total[0]!=null)?o.inp[0]/2+1000/60+o.capEnc+o.total[0]:null;
+ return o;
+}
+function measRender(){
+ if(!M.vis)return;
+ const o=measSummary(),T=(a)=>Array.isArray(a)?`${r0(a[0])} / ${r0(a[1])}`:r0(a);
+ const rows=[
+  ['Leitung hin+zurück (ohne Warten)',T(o.rtt)+' ms'],
+  ['Bild wartet auf dem PC',T(o.ageSend)+' ms'],
+  ['Bild unterwegs (½ Leitung + Übertr.)',T(o.down)+' ms'],
+  ['Sortieren / Nachfordern',T(o.pend)+' ms'],
+  ['Dekodieren',T(o.dec)+' ms'],
+  ['Warten bis Anzeige (Glättung)',T(o.wait)+' ms'],
+  ['sum','Bildalter bei Anzeige',T(o.total)+' ms'],
+  ['Taste → PC (½ Eingabe-Rundlauf)',o.inp[0]==null?'–':`${r0(o.inp[0]/2)} / ${r0(o.inp[1]/2)} ms`],
+  ['Aufnahme + Kodieren (geschätzt)','~'+r0(o.capEnc)+' ms'],
+  ['sum','Taste → sichtbar (geschätzt)',o.keyToPic==null?'–':'~'+r0(o.keyToPic)+' ms'],
+  ['Bildgröße Ø / max',`${o.sizeKB[0]==null?'–':o.sizeKB[0].toFixed(1)} / ${o.sizeKB[1]==null?'–':o.sizeKB[1].toFixed(1)} KB`],
+  ['Schlüsselbilder (größtes)',`${o.keys}${o.keyKB?' ('+o.keyKB.toFixed(1)+' KB)':''}`],
+  ['Datenspitzen (>3× Ø)',String(o.spikes)],
+  ['Bilder empfangen / angezeigt',`${o.frames} / ${o.drawn}`],
+  ['Nachforderungen / Aufholen',`${o.ev.re} / ${o.ev.catchup}`],
+  ['übersprungen (veraltet / Glättung)',`${o.ev.skipOld} / ${o.ev.skipSmooth}`],
+  ['Ton-Puffer / Aussetzer / verworfen',sndOn?`${r0(o.aBuf)} ms / ${o.aUnder} / ${o.aDrop}`:'Ton aus'],
+ ];
+ $('#measTab').innerHTML=rows.map(r=>r[0]==='sum'?`<tr class="sum"><td>${r[1]}</td><td>${r[2]}</td></tr>`:`<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join('');
+ const a=M.agent;$('#measInfo').textContent=(a?`v${a.version} · ${a.intra_refresh?'Intra-Refresh':'Schlüsselbild/s'}`:'')+' · Median / 90 %';
+ // sparkline
+ const c=$('#measCv'),g=c.getContext('2d'),W=c.width,H=c.height,now=performance.now();g.clearRect(0,0,W,H);
+ const F=M.fr,maxS=Math.max(20000,...F.map(x=>x.size)),maxL=Math.max(100,...F.map(x=>x.late||0));
+ for(const f of F){const x=W-(now-f.t)/10000*W;const h=f.size/maxS*(H*0.6);g.fillStyle=f.key?'#f59e0b':'#4b5563';g.fillRect(x,H-h,Math.max(2,W/400),h)}
+ g.strokeStyle='#22c55e';g.lineWidth=2;g.beginPath();let first=true;
+ for(const f of F){if(f.late==null)continue;const x=W-(now-f.t)/10000*W,y=H-4-(f.late/maxL)*(H-8);if(first){g.moveTo(x,y);first=false}else g.lineTo(x,y)}
+ g.stroke();g.fillStyle='#98a2b3';g.font='20px system-ui';g.fillText(Math.round(maxL)+' ms',6,22);
+}
+setInterval(measRender,1000);
+let mTick=0;
+setInterval(async()=>{
+ mTick++;
+ if(!M.vis&&mTick%2)return;                                   // hidden: every 10 s instead of 5 s
+ if(M.vis||!M.agent||mTick%12===0){try{M.agent=await (await fetch('api/status',{cache:'no-store'})).json()}catch(e){}}
+ const o=measSummary(),a=M.agent||{};
+ const rep={t:new Date().toISOString(),vis:M.vis,snd:sndOn,mode:stats.mode,proto:stats.proto,smooth:$('#smooth').value,res:$('#res').value,fps:+$('#fps').value,kbps:+$('#kbps').value,kf:$('#kf').value,
+  agent:a.version,pipeline:a.pipeline,ir:a.intra_refresh,...o};
+ for(const k in rep){if(typeof rep[k]==='number')rep[k]=Math.round(rep[k]*10)/10;else if(Array.isArray(rep[k]))rep[k]=rep[k].map(v=>v==null?null:Math.round(v*10)/10)}
+ try{await fetch('api/reports',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(rep)})}catch(e){}
+},5000);
+function setMeas(on){M.vis=on;LS.set('meas',on?'1':'0');$('#meas').style.display=on?'block':'none';$('#measBtn').classList.toggle('pri',on);if(on)measRender()}
+$('#measBtn').onclick=()=>setMeas(!M.vis);
+$('#measX').onclick=()=>setMeas(false);
+
+// ---------------------------------------------------------------- decoder (WebCodecs)
+let dec=null,decGen=-1,waitKey=true,checked=null,unsupported=false,curCodec='';
+// ---- codec choice: H.265 when the browser can decode it (and it did not fail before), else H.264
+const HEVC_PROBE='hvc1.1.6.L120.B0';let hevcErrs=[];
+async function hevcSupported(){
+ if(LS.get('hevcBad','0')==='1'||typeof VideoDecoder==='undefined')return false;
+ try{return (await VideoDecoder.isConfigSupported({codec:HEVC_PROBE,optimizeForLatency:true})).supported}catch(e){return false}
+}
+async function chooseCodec(userChange){
+ const sel=$('#codec').value;let want='h264';
+ if(sel==='hevc'||sel==='auto'){
+  if(userChange&&sel==='hevc')LS.set('hevcBad','0');
+  want=await hevcSupported()?'hevc':'h264';
+  if(sel==='hevc'&&want!=='hevc')hint('H.265 kann dieser Browser nicht abspielen – es bleibt bei H.264',5000);
+ }
+ if(want!==agentCodec){agentCodec=want;saveSettings()}
+ $('#codec').title='aktiv: '+(want==='hevc'?'H.265':'H.264');
+}
+function hevcFailed(why){console.warn('H.265 failed',why);LS.set('hevcBad','1');hint('H.265 klappt hier nicht – zurück zu H.264',5000);agentCodec='h264';saveSettings()}
+function hevcErr(e){const now=performance.now();hevcErrs=hevcErrs.filter(t=>now-t<10000);hevcErrs.push(now);if(hevcErrs.length>=3)hevcFailed(e&&e.message)}
+function codecFromSps(d){
+ for(let i=0;i+4<d.length;i++){
+  if(d[i]===0&&d[i+1]===0&&d[i+2]===1){
+   const b=d[i+3];
+   if(b===0x40&&d[i+4]===0x01)return hevcCodec(d,i+5);        // H.265 VPS (type 32)
+   if((b&0x1f)===7&&(b&0x80)===0){const h=x=>x.toString(16).padStart(2,'0');return 'avc1.'+h(d[i+4])+h(d[i+5])+h(d[i+6])}
+  }
+ }
+ return null;
+}
+// codec string 'hvc1.<profile>.<compat>.<L|H><level>.<constraints>' from the VPS profile_tier_level
+function hevcCodec(d,p){
+ const r=[];let z=0;                                   // remove emulation prevention bytes (00 00 03)
+ for(let i=p;i<d.length&&r.length<20;i++){if(z>=2&&d[i]===3){z=0;continue}r.push(d[i]);z=d[i]===0?z+1:0}
+ if(r.length<16)return 'hvc1.1.6.L120.B0';
+ const q=r.slice(4);                                    // skip 4 bytes of VPS fields
+ const sp=q[0]>>6,tier=(q[0]>>5)&1,prof=q[0]&31;
+ let comp=((q[1]<<24)|(q[2]<<16)|(q[3]<<8)|q[4])>>>0,rev=0;for(let k=0;k<32;k++){rev=(rev<<1)|(comp&1);comp>>>=1}rev>>>=0;
+ const cons=q.slice(5,11);while(cons.length>1&&cons[cons.length-1]===0)cons.pop();
+ return 'hvc1.'+(['','A','B','C'][sp])+prof+'.'+rev.toString(16).toUpperCase()+'.'+(tier?'H':'L')+q[11]+'.'+cons.map(x=>x.toString(16).toUpperCase()).join('.');
+}
+function resetDecoder(){try{dec&&dec.state!=='closed'&&dec.close()}catch(e){}dec=null;waitKey=true}
+function drawFrame(f){
+ if(M.on){const ts=f.timestamp,now=performance.now(),ot=M.outT.get(ts),p=M.part.get(ts);M.outT.delete(ts);M.part.delete(ts);
+  if(p&&ot!=null){p.wait=now-ot;if(p.ageSend!=null&&p.down!=null)p.total=p.ageSend+p.down+p.pend+(p.dec||0)+p.wait}}
+ if(cv.width!==f.displayWidth||cv.height!==f.displayHeight){cv.width=f.displayWidth;cv.height=f.displayHeight;}
+ ctx.drawImage(f,0,0);f.close();stats.decoded++;
+ if(msgOn&&!unsupported)msg(null);   // picture is back: hide old error message
+}
+// ---- smoothing: frames arrive in bursts (one burst per HTTP poll). Instead of drawing a
+// burst at once, show each frame at ts + fastest arrival offset + jitter (p90 of last ~3 s).
+// smoothing mode: 'on' (Flüssig), 'bal' (Ausgewogen) or null (Direkt). Auto: Ausgewogen when polling.
+function smoothMode(){const v=$('#smooth').value;if(v==='on'||v==='bal')return v;if(v==='auto'&&stats.mode!=='Stream')return 'bal';return null}
+function smoothOn(){return !!smoothMode()}
+function jitQ(p){if(!jit.length)return 0;const a=jit.slice().sort((x,y)=>x-y);return a[Math.floor(a.length*p)]}
+function jitP90(){if(!jit.length)return 0;const a=jit.slice().sort((x,y)=>x-y);return a[Math.floor(a.length*0.9)]}
+const showQ=[];
+let newestTs=0;
+function dropFrame(f){if(M.on){M.outT.delete(f.timestamp);M.part.delete(f.timestamp)}f.close()}
+function onFrame(f){
+ if(M.on){const ts=f.timestamp,now=performance.now(),d=M.decT.get(ts);M.decT.delete(ts);M.outT.set(ts,now);const p=M.part.get(ts);if(p&&d!=null)p.dec=now-d}
+ // catching up from a keyframe (or after a lag): decode everything, but don't show stale pictures
+ if(f.timestamp/1000<newestTs-150){M.ev.skipOld++;dropFrame(f);return}
+ if(!smoothOn()){while(showQ.length)dropFrame(showQ.shift());drawFrame(f);return}
+ showQ.push(f);
+ if(showQ.length>20)while(showQ.length>1)drawFrame(showQ.shift());
+}
+setInterval(()=>{const t=Math.min(250,smoothMode()==='bal'?jitQ(0.6)+5:jitP90()+8);smoothDelay=smoothDelay?smoothDelay*0.8+t*0.2:t},500);
+(function show(){
+ requestAnimationFrame(show);
+ if(!showQ.length||baseOff===null)return;
+ const now=performance.now();let i=-1;
+ for(let k=0;k<showQ.length;k++){if(showQ[k].timestamp/1000+baseOff+smoothDelay<=now)i=k;else break}
+ if(i<0)return;
+ if(smoothMode()==='bal'&&i<=1){        // Ausgewogen: show a late frame now instead of skipping; the next one follows
+  const f=showQ.shift();drawFrame(f);return}  // on the next display refresh, so playback quietly catches up
+ if(smoothMode()==='bal')i=Math.max(0,i-1); // more than 2 ready: skip all but the last two
+ for(let k=0;k<i;k++){M.ev.skipSmooth++;dropFrame(showQ[k])}            // too late: skip
+ const f=showQ[i];showQ.splice(0,i+1);drawFrame(f);
+})();
+// the decoder lost its reference (gap that could not be filled, decoder error): restart
+// from the newest keyframe the PC still has (it re-sends from there; old frames are decoded
+// but not shown). Poll mode: one poll with re=1 & after=0. Stream mode: reconnect.
+let needKey=false,lastKeyReq=0;
+function requestKey(){
+ const now=performance.now();if(now-lastKeyReq<1000){needKey=true;setTimeout(()=>{if(needKey)requestKey()},1010-(now-lastKeyReq));return}lastKeyReq=now;
+ M.ev.catchup++;resetDecoder();needKey=true;pend=[];gapSince=0;if(gapTimer){clearTimeout(gapTimer);gapTimer=0}
+ if(stats.mode==='Stream')transportLoop();else{lastSeq=0;needRe=true}
+}
+function feed(fr,late){
+ stats.bytes+=fr.data.length+16;stats.lastFrame=performance.now();
+ const now=performance.now(),off=now-fr.ts;
+ if(fr.gen!==decGen)newestTs=0;
+ if(fr.ts<newestTs-150)late=true;else if(fr.ts>newestTs)newestTs=fr.ts;
+ if(fr.key)M.ev.keys++;
+ if(baseOff===null||off<baseOff||fr.gen!==decGen){if(baseOff!==null&&fr.gen===decGen)jit=jit.map(j=>j+(baseOff-off));baseOff=off}
+ stats.lag=stats.lag*0.9+(off-baseOff)*0.1;
+ if(!late){jit.push(off-baseOff);if(jit.length>90)jit.shift();}   // re-sent frames don't count as jitter
+ if(fr.gen!==decGen){resetDecoder();decGen=fr.gen;baseOff=off;stats.lag=0;jit=[];while(showQ.length)showQ.shift().close()}
+ if(waitKey){
+  // no reference picture yet: give a keyframe that is already on its way 500 ms, then ask for one
+  if(!fr.key){if(!needKey){needKey=true;const g=decGen;setTimeout(()=>{if(needKey&&decGen===g)requestKey()},500)}return}
+  const codec=codecFromSps(fr.data);if(!codec)return;
+  if(checked!==codec){checked=codec;VideoDecoder.isConfigSupported({codec,optimizeForLatency:true}).then(r=>{if(!r.supported){
+   if(codec.startsWith('hvc1')){hevcFailed('nicht unterstützt: '+codec);return}
+   unsupported=true;msg('Video kann nicht abgespielt werden','Dieser Browser kann H.264 ('+codec+') nicht dekodieren. Bitte aktuelles Chrome oder Edge verwenden.')}}).catch(()=>{})}
+  if(unsupported)return;
+  curCodec=codec;
+  dec=new VideoDecoder({output:onFrame,error:e=>{console.warn('decoder',e);if(curCodec.startsWith('hvc1'))hevcErr(e);resetDecoder();requestKey()}});
+  try{dec.configure({codec,optimizeForLatency:true,hardwareAcceleration:'no-preference'})}catch(e){if(codec.startsWith('hvc1')){hevcFailed(e.message);resetDecoder();return}msg('Video kann nicht abgespielt werden','Dieser Browser kann H.264 nicht dekodieren ('+e.message+'). Bitte Chrome oder Edge verwenden.');resetDecoder();return}
+  waitKey=false;msg(null);
+ }
+ if(dec.decodeQueueSize>400){requestKey();return}   // decoder hopelessly behind
+ if(M.on){const t=fr.ts*1000;M.decT.set(t,now);const late2=off-baseOff;
+  const p={t:now,size:fr.data.length,key:fr.key,late:late?null:late2,ageSend:fr.ageSend,down:fr.down,pend:fr.arr!=null?now-fr.arr:0};
+  M.part.set(t,p);mPush(M.fr,p);if(M.part.size>2000)M.part.clear();if(M.decT.size>2000)M.decT.clear()}
+ try{dec.decode(new EncodedVideoChunk({type:fr.key?'key':'delta',timestamp:fr.ts*1000,data:fr.data}))}catch(e){console.warn(e);requestKey()}
+}
+
+// ---------------------------------------------------------------- transport (plain HTTP, no WebSocket)
+let transportId=0,lastSeq=0,lastGen=0;
+let IN_MAX=3;const CID=Math.random().toString(36).slice(2)+Date.now().toString(36);
+function parseFrames(buf,cb){
+ let i=0;const dv=new DataView(buf.buffer,buf.byteOffset,buf.byteLength);
+ while(i+16<=buf.length){
+  const len=dv.getUint32(i,true);if(i+16+len>buf.length)break;
+  if(len>0){const fr={seq:dv.getUint32(i+4,true),ts:dv.getUint32(i+8,true),gen:dv.getUint16(i+12,true),key:buf[i+14]===1,data:buf.subarray(i+16,i+16+len),arr:performance.now()};
+   if(buf[i+15]===1)aIngest(fr);else cb(fr);}   // byte 15 = 1: audio packet riding along
+  i+=16+len;
+ }
+ return i;
+}
+async function runStream(id){
+ stats.mode='Stream';
+ const ac=new AbortController();
+ const res=await fetch('api/stream',{cache:'no-store',signal:ac.signal});
+ if(!res.ok)throw new Error('HTTP '+res.status);
+ const rd=res.body.getReader();
+ let buf=new Uint8Array(0),chunks=0,frames=0;const t0=performance.now();let lastData=performance.now();
+ const wd=setInterval(()=>{
+  const el=performance.now()-t0;
+  if(id!==transportId){ac.abort();return}
+  if(performance.now()-lastData>6000){ac.abort()}                      // stalled
+  if($('#mode').value==='auto'&&el>4000&&el<4600&&(frames===0||chunks<4)){bufferedProxy=true;ac.abort()} // proxy collects data
+ },500);
+ try{
+  for(;;){
+   const {done,value}=await rd.read();if(done||id!==transportId)break;
+   chunks++;lastData=performance.now();
+   const nb=new Uint8Array(buf.length+value.length);nb.set(buf);nb.set(value,buf.length);
+   const used=parseFrames(nb,fr=>{frames++;ingest(fr)});
+   buf=nb.subarray(used);
+  }
+ }finally{clearInterval(wd)}
+}
+// ---- ordering: frames may come from several overlapping polls, so a later response can
+// overtake an earlier one. Feed strictly in seq order; a keyframe may jump ahead; a gap
+// that stays open for 120 ms is given up (decoder waits for the next keyframe).
+let pend=[],gapTimer=0,needRe=false,gapSince=0;
+function ingest(fr){
+ if(fr.gen!==lastGen){lastGen=fr.gen;lastSeq=0;pend=[]}
+ if(needKey){if(!fr.key)return;needKey=false;lastSeq=fr.seq;feed(fr,true);drainPend();return}
+ if(lastSeq&&fr.seq<=lastSeq)return;                         // duplicate / too late
+ if(!lastSeq||fr.seq===lastSeq+1||fr.key){lastSeq=fr.seq;feed(fr,gapSince>0);drainPend();return}
+ pend.push(fr);pend.sort((a,b)=>a.seq-b.seq);
+ // gap: after 60 ms ask the PC to re-send (an answer was probably lost by a proxy);
+ // if it is still open after 600 ms, give up and wait for the next keyframe
+ if(!gapSince)gapSince=performance.now();
+ if(!gapTimer)gapTimer=setTimeout(function chk(){gapTimer=0;if(!pend.length){gapSince=0;return}
+  if(performance.now()-gapSince<600){if(!needRe)M.ev.re++;needRe=true;gapTimer=setTimeout(chk,150);return}
+  gapSince=0;requestKey()},60);
+}
+function drainPend(){
+ pend=pend.filter(f=>f.seq>lastSeq);
+ while(pend.length&&(pend[0].seq===lastSeq+1||pend[0].key)){const f=pend.shift();lastSeq=f.seq;feed(f,true)}
+ if(!pend.length){gapSince=0;needRe=false;if(gapTimer){clearTimeout(gapTimer);gapTimer=0}}
+}
+function proto(){
+ try{const e=performance.getEntriesByType('resource').filter(x=>x.name.indexOf('/api/')>=0&&x.nextHopProtocol).pop();return e?e.nextHopProtocol:''}catch(e){return ''}
+}
+async function runPoll(id){
+ stats.mode='Abfrage';pollLive=true;
+ // overlapping long-polls: while answers travel back, other polls already wait on the PC.
+ // HTTP/1.1 allows only 6 connections per host: 3 polls + 1 audio + 2 input. HTTP/2 multiplexes:
+ // 5 polls + up to 4 input POSTs (~27 mouse batches/s). 8 polls + 8 inputs at 10 ms (~50/s) overloaded
+ // a restrictive TLS proxy in tests (RTT 145 -> 300-490 ms, input 500-700 ms): the request RATE matters there.
+ let err=null,active=0;
+ const want=()=>{const p=proto();stats.proto=p;const h2=/^h[23]/.test(p);IN_MAX=h2?(+LS.get('inmax',0)||4):2;return Math.min(10,+LS.get('polls',0)||(h2?5:3))};
+ // Restrictive proxies sometimes fail single requests (502/504). One failed poll only
+ // pauses that poll briefly; the transport restarts only after 8 s without any answer.
+ let lastOk=performance.now();
+ const worker=async()=>{
+  active++;let fails=0;
+  try{
+   while(id===transportId&&!err&&active<=want()){
+    let res=null,b=null;
+    try{
+     const re=needRe?'&re=1':'';needRe=false;
+     const tReq=performance.now();
+     const au=audioFold()?`&a=1&aa=${aLastSeq}&ag=${aLastGen}`:'';
+     const ib=takeInput();                                  // pending mouse movement rides along
+     const opt=ib?{method:'POST',headers:{'Content-Type':'application/json'},body:ib,cache:'no-store'}:{cache:'no-store'};
+     try{res=await fetch(`api/frames?after=${lastSeq}&gen=${lastGen}&c=${CID}${re}${au}`,opt)}
+     catch(e){if(ib)sendInput(ib);throw e}
+     if(ib&&!res.ok&&res.status>=500)sendInput(ib);         // input may be lost with the answer: resend (agent drops duplicates)
+     const tHdr=performance.now();
+     if(res.ok){b=new Uint8Array(await res.arrayBuffer());
+      const tEnd=performance.now(),hold=+(res.headers.get('X-Hold')||0),ag=(res.headers.get('X-Age')||'').split(',').map(Number);
+      const rtt=tHdr-tReq-hold;b.info={rtt,xfer:tEnd-tHdr,ageLast:ag.length===2?ag[1]:null};
+      if(M.on&&b.length)mPush(M.resp,{t:tEnd,rtt,hold,xfer:tEnd-tHdr,bytes:b.length})}
+    }catch(e){res=null}
+    if(id!==transportId)break;
+    if(!b){
+     fails++;stats.netErr++;stats.lastErr=res?'HTTP '+res.status:'Netzwerkfehler';
+     if(performance.now()-lastOk>8000){err=new Error(stats.lastErr);break}
+     await new Promise(r=>setTimeout(r,Math.min(1000,100*fails)));continue;
+    }
+    fails=0;lastOk=performance.now();
+    if(M.on&&b.info&&b.info.ageLast!=null){
+     // age of each frame when the PC sent it = age of the newest + its ts distance; time on the way down ≈ ½ round trip + transfer
+     const list=[];parseFrames(b,fr=>list.push(fr));const tl=list.length?list[list.length-1].ts:0;
+     for(const fr of list){fr.ageSend=b.info.ageLast+(tl-fr.ts);fr.down=b.info.rtt/2+b.info.xfer;ingest(fr)}
+    }else parseFrames(b,ingest);
+   }
+  }finally{active--}
+ };
+ while(id===transportId&&!err){
+  if(active<want())worker();
+  await new Promise(r=>setTimeout(r,active<want()?30:500));
+ }
+ pollLive=false;
+ while(active>0)await new Promise(r=>setTimeout(r,50));
+ if(err)throw err;
+}
+let bufferedProxy=false;
+async function transportLoop(){
+ const id=++transportId;let fails=0;
+ while(id===transportId){
+  const m=$('#mode').value;
+  try{
+   if(m==='poll'||(m==='auto'&&bufferedProxy))await runPoll(id);else await runStream(id);
+   fails=0;
+  }catch(e){
+   if(id!==transportId)return;
+   fails++;setStat('bad','Verbindung unterbrochen – neuer Versuch');
+   if(e&&/HTTP 50[234]/.test(e.message)&&performance.now()-stats.lastFrame>5000)msg('Spiele-PC nicht erreichbar','Ist der PC an und läuft das Programm „spiel-agent“? Neuer Versuch läuft automatisch. ('+e.message+')');
+   await new Promise(r=>setTimeout(r,Math.min(5000,500*fails)));
+  }
+ }
+}
+function restartTransport(){bufferedProxy=false;transportLoop()}
+
+// ---------------------------------------------------------------- settings
+async function loadSettings(){
+ try{const s=await (await fetch('api/settings',{cache:'no-store'})).json();
+  $('#res').value=s.w+'x'+s.h;$('#fps').value=String(s.fps);$('#kbps').value=String(s.kbps);$('#kf').value=s.kf==='gop'?'gop':'ir';agentCodec=s.codec==='hevc'?'hevc':'h264';}catch(e){}
+ await chooseCodec(false);
+}
+let agentCodec='h264';
+async function saveSettings(){
+ const [w,h]=$('#res').value.split('x').map(Number);
+ const body={w,h,fps:+$('#fps').value,kbps:+$('#kbps').value,monitor:0,kf:$('#kf').value,codec:agentCodec};
+ try{await fetch('api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})}catch(e){}
+ resetDecoder();
+}
+for(const id of ['res','fps','kbps','kf'])$('#'+id).onchange=saveSettings;
+
+// ---------------------------------------------------------------- input (HTTP POST batches)
+const SC={Escape:[1],Digit1:[2],Digit2:[3],Digit3:[4],Digit4:[5],Digit5:[6],Digit6:[7],Digit7:[8],Digit8:[9],Digit9:[10],Digit0:[11],Minus:[12],Equal:[13],Backspace:[14],Tab:[15],
+KeyQ:[16],KeyW:[17],KeyE:[18],KeyR:[19],KeyT:[20],KeyY:[21],KeyU:[22],KeyI:[23],KeyO:[24],KeyP:[25],BracketLeft:[26],BracketRight:[27],Enter:[28],ControlLeft:[29],
+KeyA:[30],KeyS:[31],KeyD:[32],KeyF:[33],KeyG:[34],KeyH:[35],KeyJ:[36],KeyK:[37],KeyL:[38],Semicolon:[39],Quote:[40],Backquote:[41],ShiftLeft:[42],Backslash:[43],
+KeyZ:[44],KeyX:[45],KeyC:[46],KeyV:[47],KeyB:[48],KeyN:[49],KeyM:[50],Comma:[51],Period:[52],Slash:[53],ShiftRight:[54],NumpadMultiply:[55],AltLeft:[56],Space:[57],CapsLock:[58],
+F1:[59],F2:[60],F3:[61],F4:[62],F5:[63],F6:[64],F7:[65],F8:[66],F9:[67],F10:[68],NumLock:[69,1],ScrollLock:[70],Numpad7:[71],Numpad8:[72],Numpad9:[73],NumpadSubtract:[74],
+Numpad4:[75],Numpad5:[76],Numpad6:[77],NumpadAdd:[78],Numpad1:[79],Numpad2:[80],Numpad3:[81],Numpad0:[82],NumpadDecimal:[83],IntlBackslash:[86],F11:[87],F12:[88],
+NumpadEnter:[28,1],ControlRight:[29,1],NumpadDivide:[53,1],PrintScreen:[55,1],AltRight:[56,1],Home:[71,1],ArrowUp:[72,1],PageUp:[73,1],ArrowLeft:[75,1],ArrowRight:[77,1],
+End:[79,1],ArrowDown:[80,1],PageDown:[81,1],Insert:[82,1],Delete:[83,1],ContextMenu:[93,1],IntlRo:[115]};
+// Several POSTs may be in flight at once (slow proxies add ~100+ ms per request);
+// the agent applies them in seq order. Keys/buttons go out at once, pure mouse
+// movement at most every 15 ms.
+let queue=[],relX=0,relY=0,inflightN=0,wheelAcc=0,inSeq=0,lastSend=0,moveTimer=0;
+const MOVE_MS=15;
+const keysDown=new Set(),btnsDown=new Set();
+function pushEv(e){queue.push(e);pump()}
+// In polling mode mouse movement rides along in the next video poll (restrictive proxies are
+// limited by request RATE, so no extra requests). Keys/buttons/wheel still go out at once.
+let pollLive=false,carryTimer=0;
+function inPacket(batch){return JSON.stringify({c:CID,s:inSeq++,e:batch,m:$('#msmooth').value==='on'?1:0})}
+function takeInput(){
+ const hasMove=Math.round(relX)||Math.round(relY);
+ if(!hasMove&&!queue.length)return null;
+ if(hasMove){queue.unshift([1,Math.round(relX),Math.round(relY)]);relX-=Math.round(relX);relY-=Math.round(relY)}
+ const batch=queue;queue=[];M.ev.carried=(M.ev.carried||0)+1;
+ if(carryTimer){clearTimeout(carryTimer);carryTimer=0}   // carried: the fallback timer starts anew with the next movement
+ return inPacket(batch);
+}
+function pump(){
+ const hasMove=Math.round(relX)||Math.round(relY);
+ if(!queue.length&&!hasMove)return;
+ if(pollLive&&!queue.length){              // only movement: wait for the next poll (fallback after 90 ms)
+  if(!carryTimer)carryTimer=setTimeout(()=>{carryTimer=0;if(pollLive&&(Math.round(relX)||Math.round(relY))){const b=takeInput();if(b){M.ev.carried--;sendInput(b)}}},90);
+  return;
+ }
+ if(inflightN>=IN_MAX+(queue.length?4:0))return;     // keys/buttons may use 4 extra slots
+ if(!queue.length){                       // only mouse movement: throttle
+  const wait=MOVE_MS-(performance.now()-lastSend);
+  if(wait>0){if(!moveTimer)moveTimer=setTimeout(()=>{moveTimer=0;pump()},wait);return}
+ }
+ if(hasMove){queue.unshift([1,Math.round(relX),Math.round(relY)]);relX-=Math.round(relX);relY-=Math.round(relY)}
+ const batch=queue;queue=[];lastSend=performance.now();
+ sendInput(inPacket(batch));
+}
+// standalone input POST; retried up to 3 times on proxy hiccups (the agent ignores duplicate seqs)
+function sendInput(body){
+ inflightN++;M.ev.posts=(M.ev.posts||0)+1;
+ const send=async()=>{for(let t=0;t<4;t++){
+  try{const t0=performance.now();const r=await fetch('api/input',{method:'POST',headers:{'Content-Type':'application/json'},body,keepalive:false});
+   if(r.ok||r.status<500){if(M.on&&r.ok)mPush(M.inp,{t:performance.now(),rtt:performance.now()-t0});return}}catch(e){}
+  stats.netErr++;await new Promise(r=>setTimeout(r,50*(t+1)));
+ }};
+ send().finally(()=>{inflightN--;pump()});
+}
+function releaseAll(){
+ for(const c of keysDown){const s=SC[c];if(s)queue.push([6,s[0],s[1]||0,0])}keysDown.clear();
+ for(const b of btnsDown)queue.push([4,b]);btnsDown.clear();pump();
+}
+const locked=()=>document.pointerLockElement===cv;
+const isRel=()=>$('#mouse').value==='rel';
+function absPos(e){
+ const r=cv.getBoundingClientRect();
+ const x=Math.min(1,Math.max(0,(e.clientX-r.left)/r.width)),y=Math.min(1,Math.max(0,(e.clientY-r.top)/r.height));
+ return [2,Math.round(x*65535),Math.round(y*65535)];
+}
+cv.addEventListener('contextmenu',e=>e.preventDefault());
+cv.addEventListener('mousedown',e=>{
+ e.preventDefault();cv.focus();
+ if(isRel()&&!locked()){
+  const p=cv.requestPointerLock({unadjustedMovement:true});if(p&&p.catch)p.catch(()=>cv.requestPointerLock());
+  return;
+ }
+ if(!isRel())pushEv(absPos(e));
+ btnsDown.add(e.button);pushEv([3,e.button]);
+});
+window.addEventListener('mouseup',e=>{if(!btnsDown.has(e.button))return;btnsDown.delete(e.button);if(!isRel())queue.push(absPos(e));pushEv([4,e.button])});
+document.addEventListener('mousemove',e=>{
+ if(isRel()){if(!locked())return;const k=+$('#sens').value;relX+=e.movementX*k;relY+=e.movementY*k;pump();}
+ else if(e.target===cv){queue=queue.filter(q=>q[0]!==2);pushEv(absPos(e))}
+});
+cv.addEventListener('wheel',e=>{
+ e.preventDefault();
+ wheelAcc+=e.deltaMode===1?e.deltaY/3:e.deltaMode===2?e.deltaY:e.deltaY/100;
+ const n=Math.trunc(wheelAcc);if(n){wheelAcc-=n;pushEv([5,-n*120])}
+},{passive:false});
+function keyActive(){return locked()||document.activeElement===cv||document.fullscreenElement}
+window.addEventListener('keydown',e=>{
+ if(!keyActive())return;const s=SC[e.code];if(!s)return;
+ e.preventDefault();keysDown.add(e.code);pushEv([6,s[0],s[1]||0,1]);
+});
+window.addEventListener('keyup',e=>{
+ const s=SC[e.code];if(!s||!keysDown.has(e.code))return;
+ e.preventDefault();keysDown.delete(e.code);pushEv([6,s[0],s[1]||0,0]);
+});
+window.addEventListener('blur',releaseAll);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)releaseAll()});
+document.addEventListener('pointerlockchange',()=>{
+ if(!locked()){releaseAll();hint(isRel()?'Ins Bild klicken, um die Maus zu fangen · Esc lässt los':'');}
+ else hint(document.fullscreenElement?'Esc gedrückt halten zum Loslassen':'Esc lässt die Maus los',2500);
+});
+// fullscreen + keyboard lock (lets Esc and most shortcuts reach the game)
+$('#fs').onclick=async()=>{
+ try{
+  if(!document.fullscreenElement){await document.documentElement.requestFullscreen();if(navigator.keyboard&&navigator.keyboard.lock)navigator.keyboard.lock().catch(()=>{});}
+  else await document.exitFullscreen();
+ }catch(e){}
+};
+document.addEventListener('fullscreenchange',()=>{$('#fs').textContent=document.fullscreenElement?'Vollbild aus':'Vollbild';autoHide()});
+// auto-hide bar in fullscreen / when mouse is captured
+let hideT;function autoHide(){clearTimeout(hideT);$('#bar').classList.remove('hide');hideT=setTimeout(()=>{if(document.fullscreenElement||locked())$('#bar').classList.add('hide')},2500)}
+document.addEventListener('mousemove',e=>{if(!locked()&&e.clientY<40)autoHide()});
+document.addEventListener('pointerlockchange',autoHide);
+let hintT;function hint(t,ms){const h=$('#hint');clearTimeout(hintT);if(!t){h.style.display='none';return}h.textContent=t;h.style.display='block';if(ms)hintT=setTimeout(()=>h.style.display='none',ms)}
+
+// ---------------------------------------------------------------- audio (Opus via WebCodecs, plain HTTP)
+let actx=null,gain=null,adec=null,aplay=0,audioId=0,aLastSeq=0,aLastGen=0,aGenDec=-1,aPackets=0,sndOn=false;
+// In polling mode the audio rides along in the video polls (no extra requests: restrictive proxies
+// are limited by request rate). Stream mode keeps its own audio stream.
+function audioFold(){return sndOn&&stats.mode==='Abfrage'}
+// Adaptive jitter buffer: target = p95 of packet lateness over ~3 s + 25 ms, 60..250 ms.
+// Rises at once, falls slowly; a too-full buffer drops packets (never grows without bound).
+let aTarget=0.06,aBase=null,aJit=[],aUnder=0,aDrop=0;
+setInterval(()=>{
+ if(!aJit.length)return;const a=aJit.slice().sort((x,y)=>x-y);
+ const t=Math.min(0.25,Math.max(0.06,(a[Math.floor(a.length*0.95)]+25)/1000));
+ aTarget=t>aTarget?t:aTarget*0.9+t*0.1;
+},500);
+let aPend=[],aGapT=0;
+function aIngest(fr){            // order packets from overlapping polls; skip a gap after 60 ms
+ if(fr.gen!==aLastGen){aLastGen=fr.gen;aLastSeq=0;aPend=[]}
+ if(aLastSeq&&fr.seq<=aLastSeq)return;
+ if(!aLastSeq||fr.seq===aLastSeq+1){aLastSeq=fr.seq;aArrive(fr);aDrain();return}
+ aPend.push(fr);aPend.sort((x,y)=>x.seq-y.seq);
+ if(!aGapT)aGapT=setTimeout(()=>{aGapT=0;if(aPend.length){aLastSeq=aPend[0].seq-1;aDrain()}},60);
+}
+function aDrain(){
+ aPend=aPend.filter(f=>f.seq>aLastSeq);
+ while(aPend.length&&aPend[0].seq===aLastSeq+1){const f=aPend.shift();aLastSeq=f.seq;aArrive(f)}
+ if(!aPend.length&&aGapT){clearTimeout(aGapT);aGapT=0}
+}
+function aArrive(fr){
+ if(!sndOn)return;
+ const off=performance.now()-fr.ts;
+ if(fr.gen!==aGenDec){aBase=null;aJit=[]}
+ if(aBase===null||off<aBase){if(aBase!==null)aJit=aJit.map(j=>j+(aBase-off));aBase=off}
+ aJit.push(off-aBase);if(aJit.length>150)aJit.shift();
+ aFeed(fr);
+}
+function aOut(ad){
+ try{
+  const n=ad.numberOfFrames,ch=Math.min(2,ad.numberOfChannels),buf=actx.createBuffer(ch,n,ad.sampleRate);
+  for(let c=0;c<ch;c++){const tmp=new Float32Array(n);ad.copyTo(tmp,{planeIndex:c,format:'f32-planar'});buf.copyToChannel(tmp,c)}
+  ad.close();
+  const now=actx.currentTime;
+  if(aplay<now+0.005){if(aplay>0)aUnder++;aplay=now+aTarget}   // underrun: restart with the current buffer target
+  else if(aplay>now+aTarget+0.15){aDrop++;return}               // too far ahead (burst after a hang): drop
+  const src=actx.createBufferSource();src.buffer=buf;src.connect(gain);src.start(aplay);aplay+=buf.duration;
+ }catch(e){try{ad.close()}catch(_){}}
+}
+function aReset(){try{adec&&adec.state!=='closed'&&adec.close()}catch(e){}adec=null}
+function aFeed(fr){
+ if(fr.gen!==aGenDec){aReset();aGenDec=fr.gen}
+ if(!adec){adec=new AudioDecoder({output:aOut,error:e=>{console.warn('audio',e);aReset()}});adec.configure({codec:'opus',sampleRate:48000,numberOfChannels:2})}
+ if(adec.decodeQueueSize>20){aReset();return}
+ aPackets++;
+ try{adec.decode(new EncodedAudioChunk({type:'key',timestamp:fr.ts*1000,data:fr.data}))}catch(e){aReset()}
+}
+function parseInto(buf,cb,setLast){
+ let i=0;const dv=new DataView(buf.buffer,buf.byteOffset,buf.byteLength);
+ while(i+16<=buf.length){const len=dv.getUint32(i,true);if(i+16+len>buf.length)break;
+  if(len>0){const fr={seq:dv.getUint32(i+4,true),ts:dv.getUint32(i+8,true),gen:dv.getUint16(i+12,true),data:buf.subarray(i+16,i+16+len)};setLast(fr);cb(fr)}
+  i+=16+len}
+ return i;
+}
+async function audioLoop(){
+ const id=++audioId;let fails=0;
+ const setLast=fr=>{};
+ while(id===audioId){
+  try{
+   const poll=$('#mode').value==='poll'||($('#mode').value==='auto'&&bufferedProxy);
+   if(poll&&audioFold()){await new Promise(r=>setTimeout(r,300));continue}   // audio comes with the video polls
+   if(poll){
+    const r=await fetch(`api/audioframes?after=${aLastSeq}&gen=${aLastGen}`,{cache:'no-store'});
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const b=new Uint8Array(await r.arrayBuffer());if(id!==audioId)break;parseInto(b,aIngest,setLast);
+   }else{
+    const ac=new AbortController();const r=await fetch('api/audio',{cache:'no-store',signal:ac.signal});
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const rd=r.body.getReader();let buf=new Uint8Array(0);
+    const chk=setInterval(()=>{if(id!==audioId||bufferedProxy)ac.abort()},500);
+    try{for(;;){const {done,value}=await rd.read();if(done||id!==audioId)break;
+     const nb=new Uint8Array(buf.length+value.length);nb.set(buf);nb.set(value,buf.length);
+     buf=nb.subarray(parseInto(nb,aIngest,setLast));}}finally{clearInterval(chk)}
+   }
+   fails=0;
+  }catch(e){if(id!==audioId)return;fails++;await new Promise(r=>setTimeout(r,Math.min(5000,500*fails)))}
+ }
+}
+function setSound(on){
+ const b=$('#snd');
+ if(on){
+  if(typeof AudioDecoder==='undefined'){hint('Dieser Browser kann den Ton nicht abspielen',4000);return}
+  if(!actx){actx=new AudioContext({sampleRate:48000,latencyHint:'interactive'});gain=actx.createGain();gain.connect(actx.destination)}
+  actx.resume();gain.gain.value=+$('#vol').value;aplay=0;sndOn=true;audioLoop();b.textContent='🔊 Ton an';
+ }else{sndOn=false;audioId++;aReset();if(actx)actx.suspend();b.textContent='🔇 Ton aus'}
+ LS.set('snd',on?'1':'0');
+}
+$('#snd').onclick=()=>setSound($('#snd').textContent.indexOf('aus')>=0);
+$('#vol').value=LS.get('vol','1');
+$('#vol').oninput=()=>{LS.set('vol',$('#vol').value);if(gain)gain.gain.value=+$('#vol').value};
+// browsers only allow sound after a click: switch it on with the first click if it was on last time
+cv.addEventListener('mousedown',()=>{if(LS.get('snd','0')==='1'&&!(actx&&actx.state==='running')&&$('#snd').textContent.indexOf('aus')>=0)setSound(true)},{capture:true});
+
+// ---------------------------------------------------------------- start
+if(typeof VideoDecoder==='undefined'){msg('Browser zu alt','Dieser Browser kann das Video nicht dekodieren (WebCodecs fehlt). Bitte aktuelles Chrome oder Edge verwenden.');}
+else{loadSettings();transportLoop();setMeas(LS.get('meas','0')==='1');hint(isRel()?'Ins Bild klicken, um die Maus zu fangen · Esc lässt los':'')}
+</script>
+</body>
+</html>

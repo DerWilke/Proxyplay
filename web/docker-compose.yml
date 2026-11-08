@@ -1,0 +1,14 @@
+services:
+  spiel:
+    image: python:3.12-alpine
+    container_name: spiel
+    restart: unless-stopped
+    command: ["python", "-u", "/app/server.py"]
+    ports:
+      - "8104:8080"
+    volumes:
+      - ./index.html:/app/index.html:ro
+      - ./server.py:/app/server.py:ro
+      - spiel_data:/data   # /data/dl/ = downloads (spiel-agent.exe for self-update)
+volumes:
+  spiel_data:
