@@ -30,7 +30,7 @@ import (
 )
 
 var (
-	version = "1.6.1"
+	version = "1.6.3"
 	// Access: only the reverse proxy server (allowedIP, with header X-Spiel-Key = secret)
 	// and localhost may use the API. Set them in spiel-config.json next to the exe,
 	// or at build time: -ldflags "-X main.secret=... -X main.allowedIP=... -X main.defaultUpdateURL=..."
@@ -807,6 +807,9 @@ func serveFrames(w http.ResponseWriter, r *http.Request, hub *Hub, ensure func()
 	// measurements: how long the poll was held, and how old the frames were when sent
 	now := time.Now()
 	w.Header().Set("X-Hold", strconv.FormatInt(now.Sub(tReq).Milliseconds(), 10))
+	if iw := inputWarning(); iw != "" {
+		w.Header().Set("X-Input-Warn", iw)
+	}
 	if len(frames) > 0 {
 		w.Header().Set("X-Age", fmt.Sprintf("%d,%d", now.Sub(frames[0].At).Milliseconds(), now.Sub(frames[len(frames)-1].At).Milliseconds()))
 	}
@@ -1054,6 +1057,7 @@ func statusHandler(w http.ResponseWriter, r *http.Request) {
 	ahub.mu.Lock()
 	st["audio_packets"] = ahub.count
 	ahub.mu.Unlock()
+	st["input"] = inputDiag()
 	hub.mu.Lock()
 	st["frames_total"] = hub.count
 	st["bytes_total"] = hub.bytes
@@ -1098,7 +1102,9 @@ func main() {
 		log.SetOutput(lf)
 	}
 	log.Println("spiel-agent", version, "start in", baseDir)
-	os.Remove(exe + ".old") // leftover from a self-update
+	// keep the previous exe for 30 minutes after a self-update: if the new one crashes, a person at the PC can rename
+	// spiel-agent.exe.old back to spiel-agent.exe
+	go func() { time.Sleep(30 * time.Minute); os.Remove(exe + ".old") }()
 	loadSavedSettings()
 	loadConfig()
 	var ln net.Listener

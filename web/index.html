@@ -22,6 +22,7 @@ button{cursor:pointer}button.pri{background:var(--acc);border-color:var(--acc);c
 .dot.ok{background:var(--ok)}.dot.warn{background:var(--warn)}.dot.bad{background:var(--bad)}
 #msg{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);max-width:min(560px,calc(100% - 32px));background:var(--bar);border:1px solid var(--line);border-radius:14px;padding:18px 20px;text-align:center;z-index:4}
 #msg h2{margin:0 0 6px;font-size:18px}#msg p{margin:6px 0;color:var(--mut)}
+#iwarn{position:fixed;top:56px;left:50%;transform:translateX(-50%);max-width:min(640px,calc(100% - 24px));background:var(--warn);color:#111;border-radius:12px;padding:9px 14px;z-index:5;font-size:13px;font-weight:600;text-align:center;display:none;box-shadow:0 6px 20px rgba(0,0,0,.35)}
 #hint{position:fixed;bottom:10px;left:50%;transform:translateX(-50%);background:var(--bar);border:1px solid var(--line);border-radius:999px;padding:6px 14px;color:var(--mut);z-index:4;font-size:13px;display:none}
 .sp{flex:1}
 #meas{position:fixed;right:10px;top:56px;width:340px;max-width:calc(100% - 20px);background:var(--bar);border:1px solid var(--line);border-radius:12px;padding:10px 12px;z-index:4;font:12px/1.45 ui-monospace,Consolas,monospace;display:none}
@@ -55,6 +56,7 @@ button{cursor:pointer}button.pri{background:var(--acc);border-color:var(--acc);c
 </div>
 <div id="msg"><h2>Verbinde mit dem Spiele-PC …</h2><p id="msgt">Einen Moment.</p></div>
 <div id="hint"></div>
+<div id="iwarn"></div>
 <div id="meas"><h3><span>📊 Messwerte (letzte 10 s)</span><span><span id="measInfo" class="lg"></span> <button id="measX" title="Ausblenden – misst im Hintergrund weiter" style="padding:0 7px;margin-left:6px">✕</button></span></h3>
 <canvas id="measCv" width="640" height="140"></canvas>
 <div class="lg">grün: Verspätung je Bild · grau: Bildgröße · orange: Schlüsselbild</div>
@@ -364,6 +366,7 @@ async function runPoll(id){
      if(ib&&!res.ok&&res.status>=500)sendInput(ib);         // input may be lost with the answer: resend (agent drops duplicates)
      const tHdr=performance.now();
      if(res.ok){b=new Uint8Array(await res.arrayBuffer());
+      setInputWarn(res.headers.get('X-Input-Warn')||'');
       const tEnd=performance.now(),hold=+(res.headers.get('X-Hold')||0),ag=(res.headers.get('X-Age')||'').split(',').map(Number);
       const rtt=tHdr-tReq-hold;b.info={rtt,xfer:tEnd-tHdr,ageLast:ag.length===2?ag[1]:null};
       if(M.on&&b.length)mPush(M.resp,{t:tEnd,rtt,hold,xfer:tEnd-tHdr,bytes:b.length})}
@@ -432,7 +435,7 @@ KeyZ:[44],KeyX:[45],KeyC:[46],KeyV:[47],KeyB:[48],KeyN:[49],KeyM:[50],Comma:[51]
 F1:[59],F2:[60],F3:[61],F4:[62],F5:[63],F6:[64],F7:[65],F8:[66],F9:[67],F10:[68],NumLock:[69,1],ScrollLock:[70],Numpad7:[71],Numpad8:[72],Numpad9:[73],NumpadSubtract:[74],
 Numpad4:[75],Numpad5:[76],Numpad6:[77],NumpadAdd:[78],Numpad1:[79],Numpad2:[80],Numpad3:[81],Numpad0:[82],NumpadDecimal:[83],IntlBackslash:[86],F11:[87],F12:[88],
 NumpadEnter:[28,1],ControlRight:[29,1],NumpadDivide:[53,1],PrintScreen:[55,1],AltRight:[56,1],Home:[71,1],ArrowUp:[72,1],PageUp:[73,1],ArrowLeft:[75,1],ArrowRight:[77,1],
-End:[79,1],ArrowDown:[80,1],PageDown:[81,1],Insert:[82,1],Delete:[83,1],ContextMenu:[93,1],IntlRo:[115]};
+End:[79,1],ArrowDown:[80,1],PageDown:[81,1],Insert:[82,1],Delete:[83,1],ContextMenu:[93,1],MetaLeft:[91,1],MetaRight:[92,1],IntlRo:[115]};
 // Several POSTs may be in flight at once (slow proxies add ~100+ ms per request);
 // the agent applies them in seq order. Keys/buttons go out at once, pure mouse
 // movement at most every 15 ms.
@@ -536,6 +539,10 @@ document.addEventListener('fullscreenchange',()=>{$('#fs').textContent=document.
 let hideT;function autoHide(){clearTimeout(hideT);$('#bar').classList.remove('hide');hideT=setTimeout(()=>{if(document.fullscreenElement||locked())$('#bar').classList.add('hide')},2500)}
 document.addEventListener('mousemove',e=>{if(!locked()&&e.clientY<40)autoHide()});
 document.addEventListener('pointerlockchange',autoHide);
+// the agent tells (header of the frame polls, no extra request) when a window with admin rights has the focus on the PC:
+// Windows then silently drops all injected mouse/keyboard input
+let warnShown='';
+function setInputWarn(n){if(n===warnShown)return;warnShown=n;const e=$('#iwarn');if(!n){e.style.display='none';return}e.textContent='⚠ „'+n+'“ läuft mit Administratorrechten und hat am PC den Fokus: Windows blockiert deshalb Maus und Tastatur. Am PC schließen oder ein anderes Fenster anklicken.';e.style.display='block'}
 let hintT;function hint(t,ms){const h=$('#hint');clearTimeout(hintT);if(!t){h.style.display='none';return}h.textContent=t;h.style.display='block';if(ms)hintT=setTimeout(()=>h.style.display='none',ms)}
 
 // ---------------------------------------------------------------- audio (Opus via WebCodecs, plain HTTP)

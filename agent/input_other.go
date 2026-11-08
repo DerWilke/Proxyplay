@@ -5,6 +5,7 @@ package main
 import (
 	"encoding/binary"
 	"log"
+	"os"
 	"os/exec"
 )
 
@@ -25,3 +26,8 @@ func sendInputs(ins []rawInput)                          { log.Printf("sendInput
 func hideCmd(c *exec.Cmd)                                {}
 
 var lastInputs []rawInput
+
+func inputDiag() map[string]any { return map[string]any{"note": "nur unter Windows"} }
+
+// test hook: SPIEL_TEST_WARN=foo.exe simulates a focused admin window
+func inputWarning() string { return os.Getenv("SPIEL_TEST_WARN") }
