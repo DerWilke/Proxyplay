@@ -254,6 +254,43 @@ func inputDiag() (out map[string]any) {
 	return out
 }
 
+var procGetSystemMetrics = user32.NewProc("GetSystemMetrics")
+
+// cursorState: "x,y,visible,screenW,screenH" of the real pointer (primary screen), cached 80 ms
+var curCache struct {
+	mu sync.Mutex
+	t  time.Time
+	v  string
+}
+
+func cursorState() string {
+	curCache.mu.Lock()
+	defer curCache.mu.Unlock()
+	if time.Since(curCache.t) < 80*time.Millisecond {
+		return curCache.v
+	}
+	curCache.t = time.Now()
+	curCache.v = ""
+	defer func() { recover() }()
+	var ci struct {
+		size  uint32
+		flags uint32
+		cur   uintptr
+		x, y  int32
+	}
+	ci.size = uint32(unsafe.Sizeof(ci))
+	if r, _, _ := procGetCursorInfo.Call(uintptr(unsafe.Pointer(&ci))); r != 0 {
+		w, _, _ := procGetSystemMetrics.Call(0)
+		h, _, _ := procGetSystemMetrics.Call(1)
+		vis := 0
+		if ci.flags&1 != 0 {
+			vis = 1
+		}
+		curCache.v = fmt.Sprintf("%d,%d,%d,%d,%d", ci.x, ci.y, vis, w, h)
+	}
+	return curCache.v
+}
+
 func hideCmd(c *exec.Cmd) {
 	c.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
 }

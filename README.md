@@ -108,6 +108,7 @@ Mit einem anderen Proxy gilt dasselbe Prinzip: Basic Auth, den Header setzen, Pu
 - **Bild:** Automatisch (bei Polling = Ausgewogen), Flüssig (am gleichmäßigsten), Direkt (am schnellsten, ruckelt mehr).
 - **Schlüsselbilder:** „Selten (neu)“ (Intra-Refresh) vermeidet große Einzelbilder. Das ist auf schwachen Leitungen deutlich besser als „Jede Sekunde (alt)“.
 - **Maus glätten:** verteilt ruckelig ankommende Mausbewegungen gleichmäßig. Ausprobieren, was sich besser anfühlt.
+- **Zeiger:** „Im Bild“ (Standard) zeichnet den Mauszeiger des PCs ins Video, er kommt mit der Verzögerung der Leitung an. „Im Browser (sofort)“ blendet ihn im Video aus und zeichnet einen eigenen Zeiger direkt im Browser. Menüs und Klicks fühlen sich dann direkter an. Das Spiel selbst reagiert unverändert verzögert. Im Spiel-Modus zählt die Seite die Bewegungen selbst mit und gleicht sich mit der echten Zeigerposition ab (Header `X-Cur` in den Antworten, keine zusätzlichen Anfragen), sobald die Maus ruht. Versteckt das Spiel den Zeiger, verschwindet auch der eigene. Braucht Agent ab 1.7.
 - **Codec:** Automatisch nimmt H.265, wenn der Browser es kann, sonst H.264.
 - **📊 Messwerte:** Round-Trip, Bildalter, Aussetzer, Ton-Puffer. Die Messung läuft auch bei geschlossenem Panel weiter und ist per `GET /api/reports` abrufbar.
 - Erfahrungswert für eine mäßige Leitung: 30 fps, 4 Mbit/s, Schlüsselbilder „Selten (neu)“, Bild „Ausgewogen“ oder „Direkt“.
@@ -117,6 +118,8 @@ Mit einem anderen Proxy gilt dasselbe Prinzip: Basic Auth, den Header setzen, Pu
 **Bild kommt, aber Maus und Tastatur reagieren nicht.** Windows verwirft Eingaben, die ein normales Programm in ein Fenster mit **Administratorrechten** schickt (UIPI), ohne Fehlermeldung. Hat so ein Fenster am PC den Fokus, passiert nichts. Ab Version 1.6.3 zeigt die Seite dann einen gelben Hinweis mit dem Namen des Programms. Dann das Fenster am PC schließen oder ein anderes Fenster anklicken. Läuft ein Spiel selbst als Administrator, muss auch der Agent mit Administratorrechten laufen (zum Beispiel als Aufgabe in der Aufgabenplanung, „Mit höchsten Berechtigungen ausführen“, Trigger „Bei Anmeldung“).
 
 Genaueres zeigt `http://<spiele-pc-ip>:8770/api/status` im Block `input`: wie viele Eingaben Windows angenommen oder abgelehnt hat, ob der Bildschirm gesperrt ist, welches Fenster den Fokus hat und ob der Mauszeiger sichtbar ist.
+
+**Bild und Ton bleiben stehen, es kommt nichts mehr an.** Manche Proxys halten die Antwort des Streams komplett zurück. Die Seite schaltet im Modus „Automatisch“ nach etwa 4 Sekunden von selbst auf „Abfrage“ um (ab Seitenstand mit Prüfung vor der Anfrage). Hängt es trotzdem, „Übertragung“ fest auf „Abfrage“ stellen und neu laden.
 
 **Die Windows-Taste geht nicht.** Der Browser fängt sie ab. In den Vollbild-Modus wechseln (Knopf „Vollbild“), dann wird sie an den PC durchgereicht. Strg+Alt+Entf und Windows+L lassen sich nie weiterleiten.
 

@@ -31,3 +31,6 @@ func inputDiag() map[string]any { return map[string]any{"note": "nur unter Windo
 
 // test hook: SPIEL_TEST_WARN=foo.exe simulates a focused admin window
 func inputWarning() string { return os.Getenv("SPIEL_TEST_WARN") }
+
+// test hook: SPIEL_TEST_CUR="x,y,visible,W,H" simulates the real pointer
+func cursorState() string { return os.Getenv("SPIEL_TEST_CUR") }

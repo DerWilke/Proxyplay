@@ -22,6 +22,7 @@ button{cursor:pointer}button.pri{background:var(--acc);border-color:var(--acc);c
 .dot.ok{background:var(--ok)}.dot.warn{background:var(--warn)}.dot.bad{background:var(--bad)}
 #msg{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);max-width:min(560px,calc(100% - 32px));background:var(--bar);border:1px solid var(--line);border-radius:14px;padding:18px 20px;text-align:center;z-index:4}
 #msg h2{margin:0 0 6px;font-size:18px}#msg p{margin:6px 0;color:var(--mut)}
+#lcur{position:fixed;left:0;top:0;width:18px;height:26px;pointer-events:none;z-index:4;display:none;filter:drop-shadow(0 1px 1px rgba(0,0,0,.5))}
 #iwarn{position:fixed;top:56px;left:50%;transform:translateX(-50%);max-width:min(640px,calc(100% - 24px));background:var(--warn);color:#111;border-radius:12px;padding:9px 14px;z-index:5;font-size:13px;font-weight:600;text-align:center;display:none;box-shadow:0 6px 20px rgba(0,0,0,.35)}
 #hint{position:fixed;bottom:10px;left:50%;transform:translateX(-50%);background:var(--bar);border:1px solid var(--line);border-radius:999px;padding:6px 14px;color:var(--mut);z-index:4;font-size:13px;display:none}
 .sp{flex:1}
@@ -44,6 +45,7 @@ button{cursor:pointer}button.pri{background:var(--acc);border-color:var(--acc);c
  <label title="Selten: die Grafikkarte frischt das Bild streifenweise auf, ein komplettes Bild nur alle 5 s (keine großen Datenspitzen). Jede Sekunde: bisheriges Verfahren.">Schlüsselbilder <select id="kf"><option value="ir">Selten (neu)</option><option value="gop">Jede Sekunde (alt)</option></select></label>
  <label>Qualität <select id="kbps"><option value="2000">2 Mbit/s</option><option value="4000">4 Mbit/s</option><option value="6000">6 Mbit/s</option><option value="10000">10 Mbit/s</option><option value="1000">1 Mbit/s</option></select></label>
  <label>Maus <select id="mouse"><option value="rel">Spiel (Maus fangen)</option><option value="abs">Desktop (direkt)</option></select></label>
+ <label title="Im Bild: der Mauszeiger des PCs ist Teil des Videos (wie bisher, kommt verzögert an). Im Browser: der Zeiger wird sofort hier gezeichnet und ist im Video ausgeblendet. Menüs und Klicks fühlen sich direkter an; das Spiel selbst reagiert unverändert verzögert. Braucht Agent 1.7.">Zeiger <select id="cursor"><option value="video">Im Bild</option><option value="local">Im Browser (sofort)</option></select></label>
  <label title="Mausgeschwindigkeit im Spiel-Modus">Tempo <input id="sens" type="range" min="0.3" max="3" step="0.1" value="1"></label>
  <label>Übertragung <select id="mode"><option value="auto">Automatisch</option><option value="stream">Stream</option><option value="poll">Abfrage</option></select></label>
  <label title="Ausgewogen: Bilder leicht geglättet, verspätete werden sofort gezeigt statt übersprungen. Flüssig: am gleichmäßigsten (mehr Verzögerung). Direkt: jedes Bild sofort (kann ruckeln).">Bild <select id="smooth"><option value="auto">Automatisch</option><option value="bal">Ausgewogen</option><option value="on">Flüssig</option><option value="off">Direkt</option></select></label>
@@ -57,6 +59,7 @@ button{cursor:pointer}button.pri{background:var(--acc);border-color:var(--acc);c
 <div id="msg"><h2>Verbinde mit dem Spiele-PC …</h2><p id="msgt">Einen Moment.</p></div>
 <div id="hint"></div>
 <div id="iwarn"></div>
+<svg id="lcur" viewBox="0 0 18 26"><path d="M1.5 1.5 L1.5 20.5 L6.2 16 L9.6 24 L12.6 22.8 L9.2 14.8 L15.5 14.8 Z" fill="#fff" stroke="#000" stroke-width="1.4" stroke-linejoin="round"/></svg>
 <div id="meas"><h3><span>📊 Messwerte (letzte 10 s)</span><span><span id="measInfo" class="lg"></span> <button id="measX" title="Ausblenden – misst im Hintergrund weiter" style="padding:0 7px;margin-left:6px">✕</button></span></h3>
 <canvas id="measCv" width="640" height="140"></canvas>
 <div class="lg">grün: Verspätung je Bild · grau: Bildgröße · orange: Schlüsselbild</div>
@@ -66,7 +69,7 @@ button{cursor:pointer}button.pri{background:var(--acc);border-color:var(--acc);c
 const $=s=>document.querySelector(s);
 const cv=$('#cv'),ctx=cv.getContext('2d',{alpha:false,desynchronized:true});
 const LS={get(k,d){try{const v=localStorage.getItem('spiel.'+k);return v==null?d:v}catch(e){return d}},set(k,v){try{localStorage.setItem('spiel.'+k,v)}catch(e){}}};
-for(const id of ['mouse','sens','mode','smooth','msmooth','codec']){const el=$('#'+id);el.value=LS.get(id,el.value);el.onchange=()=>{LS.set(id,el.value);if(id==='mode')restartTransport();if(id==='mouse')releaseAll();if(id==='codec')chooseCodec(true)}}
+for(const id of ['mouse','sens','mode','smooth','msmooth','codec']){const el=$('#'+id);el.value=LS.get(id,el.value);el.onchange=()=>{LS.set(id,el.value);if(id==='mode')restartTransport();if(id==='mouse'){releaseAll();curDraw()}if(id==='codec')chooseCodec(true)}}
 
 // ---------------------------------------------------------------- status
 const stats={frames:0,bytes:0,decoded:0,lag:0,mode:'-',lastFrame:0,proto:'',netErr:0,lastErr:''};
@@ -294,17 +297,18 @@ function parseFrames(buf,cb){
 async function runStream(id){
  stats.mode='Stream';
  const ac=new AbortController();
- const res=await fetch('api/stream',{cache:'no-store',signal:ac.signal});
- if(!res.ok)throw new Error('HTTP '+res.status);
- const rd=res.body.getReader();
- let buf=new Uint8Array(0),chunks=0,frames=0;const t0=performance.now();let lastData=performance.now();
+ let buf=new Uint8Array(0),chunks=0,frames=0,checked=false;const t0=performance.now();let lastData=performance.now();
+ // watchdog starts BEFORE the request: a proxy that holds back even the response headers must not hang the page
  const wd=setInterval(()=>{
   const el=performance.now()-t0;
   if(id!==transportId){ac.abort();return}
   if(performance.now()-lastData>6000){ac.abort()}                      // stalled
-  if($('#mode').value==='auto'&&el>4000&&el<4600&&(frames===0||chunks<4)){bufferedProxy=true;ac.abort()} // proxy collects data
+  if(!checked&&el>4000){checked=true;if($('#mode').value==='auto'&&(frames===0||chunks<4)){bufferedProxy=true;ac.abort()}} // proxy collects data
  },500);
  try{
+  const res=await fetch('api/stream',{cache:'no-store',signal:ac.signal});
+  if(!res.ok)throw new Error('HTTP '+res.status);
+  const rd=res.body.getReader();
   for(;;){
    const {done,value}=await rd.read();if(done||id!==transportId)break;
    chunks++;lastData=performance.now();
@@ -366,7 +370,7 @@ async function runPoll(id){
      if(ib&&!res.ok&&res.status>=500)sendInput(ib);         // input may be lost with the answer: resend (agent drops duplicates)
      const tHdr=performance.now();
      if(res.ok){b=new Uint8Array(await res.arrayBuffer());
-      setInputWarn(res.headers.get('X-Input-Warn')||'');
+      setInputWarn(res.headers.get('X-Input-Warn')||'');setCur(res.headers.get('X-Cur')||'');
       const tEnd=performance.now(),hold=+(res.headers.get('X-Hold')||0),ag=(res.headers.get('X-Age')||'').split(',').map(Number);
       const rtt=tHdr-tReq-hold;b.info={rtt,xfer:tEnd-tHdr,ageLast:ag.length===2?ag[1]:null};
       if(M.on&&b.length)mPush(M.resp,{t:tEnd,rtt,hold,xfer:tEnd-tHdr,bytes:b.length})}
@@ -415,17 +419,18 @@ function restartTransport(){bufferedProxy=false;transportLoop()}
 // ---------------------------------------------------------------- settings
 async function loadSettings(){
  try{const s=await (await fetch('api/settings',{cache:'no-store'})).json();
-  $('#res').value=s.w+'x'+s.h;$('#fps').value=String(s.fps);$('#kbps').value=String(s.kbps);$('#kf').value=s.kf==='gop'?'gop':'ir';agentCodec=s.codec==='hevc'?'hevc':'h264';}catch(e){}
+  $('#res').value=s.w+'x'+s.h;$('#fps').value=String(s.fps);$('#kbps').value=String(s.kbps);$('#kf').value=s.kf==='gop'?'gop':'ir';agentCodec=s.codec==='hevc'?'hevc':'h264';
+  const cs=$('#cursor');cs.disabled=!('cursor' in s);cs.value=s.cursor==='local'?'local':'video';curDraw();}catch(e){}
  await chooseCodec(false);
 }
 let agentCodec='h264';
 async function saveSettings(){
  const [w,h]=$('#res').value.split('x').map(Number);
- const body={w,h,fps:+$('#fps').value,kbps:+$('#kbps').value,monitor:0,kf:$('#kf').value,codec:agentCodec};
+ const body={w,h,fps:+$('#fps').value,kbps:+$('#kbps').value,monitor:0,kf:$('#kf').value,codec:agentCodec,cursor:$('#cursor').value};
  try{await fetch('api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})}catch(e){}
  resetDecoder();
 }
-for(const id of ['res','fps','kbps','kf'])$('#'+id).onchange=saveSettings;
+for(const id of ['res','fps','kbps','kf','cursor'])$('#'+id).onchange=()=>{saveSettings();curDraw()};
 
 // ---------------------------------------------------------------- input (HTTP POST batches)
 const SC={Escape:[1],Digit1:[2],Digit2:[3],Digit3:[4],Digit4:[5],Digit5:[6],Digit6:[7],Digit7:[8],Digit8:[9],Digit9:[10],Digit0:[11],Minus:[12],Equal:[13],Backspace:[14],Tab:[15],
@@ -504,9 +509,33 @@ cv.addEventListener('mousedown',e=>{
 });
 window.addEventListener('mouseup',e=>{if(!btnsDown.has(e.button))return;btnsDown.delete(e.button);if(!isRel())queue.push(absPos(e));pushEv([4,e.button])});
 document.addEventListener('mousemove',e=>{
- if(isRel()){if(!locked())return;const k=+$('#sens').value;relX+=e.movementX*k;relY+=e.movementY*k;pump();}
- else if(e.target===cv){queue=queue.filter(q=>q[0]!==2);pushEv(absPos(e))}
+ if(isRel()){if(!locked())return;const k=+$('#sens').value;relX+=e.movementX*k;relY+=e.movementY*k;pump();
+  if(scrW>0){cfx=Math.min(1,Math.max(0,cfx+e.movementX*k/scrW));cfy=Math.min(1,Math.max(0,cfy+e.movementY*k/scrH));lastMv=performance.now();curDraw()}}
+ else if(e.target===cv){queue=queue.filter(q=>q[0]!==2);const p=absPos(e);pushEv(p);cfx=p[1]/65535;cfy=p[2]/65535;curInside=true;curDraw()}
+ else if(curInside){curInside=false;curDraw()}
 });
+// ---- own pointer in the browser (option "Zeiger: Im Browser"): drawn at once, the pointer in the video is switched off.
+// Position: absolute mode = the mouse itself; game mode = own tally of the movements, corrected from the real pointer
+// position (header X-Cur of the frame answers, no extra request) whenever the mouse rests for a moment.
+const lcur=$('#lcur');let cfx=0.5,cfy=0.5,curInside=false,scrW=0,scrH=0,lastMv=0,realShow=true;
+const localCur=()=>!$('#cursor').disabled&&$('#cursor').value==='local';
+function curDraw(){
+ const on=localCur()&&(isRel()?locked()&&scrW>0:true);
+ cv.style.cursor=on?'none':'';
+ const show=on&&realShow&&(isRel()||curInside);
+ lcur.style.display=show?'block':'none';
+ if(!show)return;
+ const r=cv.getBoundingClientRect();lcur.style.transform=`translate(${r.left+cfx*r.width}px,${r.top+cfy*r.height}px)`;
+}
+function setCur(h){
+ if(!h)return;const a=h.split(',').map(Number);if(a.length<5||!(a[3]>0)||!(a[4]>0))return;
+ scrW=a[3];scrH=a[4];const prev=realShow;realShow=a[2]===1;
+ if(isRel()&&locked()&&realShow&&(!prev||performance.now()-lastMv>250)){cfx=Math.min(1,Math.max(0,a[0]/scrW));cfy=Math.min(1,Math.max(0,a[1]/scrH))}
+ curDraw();
+}
+cv.addEventListener('mouseleave',()=>{curInside=false;curDraw()});
+window.addEventListener('resize',curDraw);
+document.addEventListener('fullscreenchange',curDraw);
 cv.addEventListener('wheel',e=>{
  e.preventDefault();
  wheelAcc+=e.deltaMode===1?e.deltaY/3:e.deltaMode===2?e.deltaY:e.deltaY/100;
@@ -524,6 +553,7 @@ window.addEventListener('keyup',e=>{
 window.addEventListener('blur',releaseAll);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)releaseAll()});
 document.addEventListener('pointerlockchange',()=>{
+ curDraw();
  if(!locked()){releaseAll();hint(isRel()?'Ins Bild klicken, um die Maus zu fangen · Esc lässt los':'');}
  else hint(document.fullscreenElement?'Esc gedrückt halten zum Loslassen':'Esc lässt die Maus los',2500);
 });

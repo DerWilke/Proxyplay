@@ -30,7 +30,7 @@ import (
 )
 
 var (
-	version = "1.6.3"
+	version = "1.7.0"
 	// Access: only the reverse proxy server (allowedIP, with header X-Spiel-Key = secret)
 	// and localhost may use the API. Set them in spiel-config.json next to the exe,
 	// or at build time: -ldflags "-X main.secret=... -X main.allowedIP=... -X main.defaultUpdateURL=..."
@@ -224,8 +224,9 @@ type Settings struct {
 	FPS     int    `json:"fps"`
 	Kbps    int    `json:"kbps"`
 	Monitor int    `json:"monitor"`
-	KF      string `json:"kf"`    // "ir": intra-refresh, keyframe every 5 s (default); "gop": keyframe every second (old)
-	Codec   string `json:"codec"` // "h264" (default) or "hevc" (H.265, NVENC only; falls back to h264)
+	KF      string `json:"kf"`     // "ir": intra-refresh, keyframe every 5 s (default); "gop": keyframe every second (old)
+	Codec   string `json:"codec"`  // "h264" (default) or "hevc" (H.265, NVENC only; falls back to h264)
+	Cursor  string `json:"cursor"` // "video" (default): mouse pointer is part of the picture; "local": not drawn, the page draws its own
 }
 
 type Encoder struct {
@@ -245,7 +246,7 @@ type Encoder struct {
 	codec      string
 }
 
-var enc = &Encoder{set: Settings{W: 1280, H: 720, FPS: 30, Kbps: 4000, KF: "ir", Codec: "h264"}}
+var enc = &Encoder{set: Settings{W: 1280, H: 720, FPS: 30, Kbps: 4000, KF: "ir", Codec: "h264", Cursor: "video"}}
 
 func (e *Encoder) logErr(s string) {
 	e.mu.Lock()
@@ -258,7 +259,11 @@ func (e *Encoder) logErr(s string) {
 }
 
 func (e *Encoder) args(s Settings, idx int, ir, hevc bool) (string, []string) {
-	src := fmt.Sprintf("ddagrab=output_idx=%d:framerate=%d:draw_mouse=1", s.Monitor, s.FPS)
+	dm := 1
+	if s.Cursor == "local" {
+		dm = 0
+	}
+	src := fmt.Sprintf("ddagrab=output_idx=%d:framerate=%d:draw_mouse=%d", s.Monitor, s.FPS, dm)
 	scaleGPU, scaleCPU := "", ""
 	if s.W > 0 && s.H > 0 {
 		scaleGPU = fmt.Sprintf(",scale_d3d11=width=%d:height=%d:format=nv12", s.W, s.H)
@@ -810,6 +815,15 @@ func serveFrames(w http.ResponseWriter, r *http.Request, hub *Hub, ensure func()
 	if iw := inputWarning(); iw != "" {
 		w.Header().Set("X-Input-Warn", iw)
 	}
+	enc.mu.Lock()
+	localCur := enc.set.Cursor == "local"
+	enc.mu.Unlock()
+	if localCur {
+		// real pointer position (x,y,visible,screenW,screenH): lets the page keep its own pointer in sync, no extra request
+		if c := cursorState(); c != "" {
+			w.Header().Set("X-Cur", c)
+		}
+	}
 	if len(frames) > 0 {
 		w.Header().Set("X-Age", fmt.Sprintf("%d,%d", now.Sub(frames[0].At).Milliseconds(), now.Sub(frames[len(frames)-1].At).Milliseconds()))
 	}
@@ -960,6 +974,9 @@ func sanitize(s *Settings) {
 	}
 	if s.Codec != "hevc" {
 		s.Codec = "h264"
+	}
+	if s.Cursor != "local" {
+		s.Cursor = "video"
 	}
 }
 
